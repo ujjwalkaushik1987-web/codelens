@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 set -e
 
-echo "=== Initializing CodeLens Backend Service ==="
+echo "=== Initializing CodeLens Service (PID $$) ==="
 
-# Wait for PostgreSQL if DATABASE_URL is configured
+# Determine if this container is responsible for running migrations
+IS_MIGRATION_LEADER=false
+if [ "$RUN_MIGRATIONS" = "true" ] || [ "$RUN_MIGRATIONS" = "1" ]; then
+    IS_MIGRATION_LEADER=true
+elif [ -z "$RUN_MIGRATIONS" ] && [[ "$*" != *"celery"* ]]; then
+    IS_MIGRATION_LEADER=true
+fi
+
+# 1. Wait for PostgreSQL if configured
 if [ -n "$DATABASE_URL" ] || [ "$DB_ENGINE" = "postgresql" ]; then
     echo "Waiting for PostgreSQL database connection..."
     python -c "
 import time, os, urllib.parse, psycopg2
+
 url_str = os.getenv('DATABASE_URL')
 if url_str:
     url = urllib.parse.urlparse(url_str)
@@ -19,7 +28,7 @@ else:
     password = os.getenv('POSTGRES_PASSWORD', 'postgres')
     db = os.getenv('POSTGRES_DB', 'codelens')
 
-for i in range(30):
+for attempt in range(40):
     try:
         conn = psycopg2.connect(dbname=db, user=user, password=password, host=host, port=port)
         cur = conn.cursor()
@@ -35,23 +44,46 @@ else:
 "
 fi
 
-# Run database migrations
-echo "Applying database migrations..."
-python manage.py migrate --noinput
+# 2. Prevent Migration Race Condition
+if [ "$IS_MIGRATION_LEADER" = "true" ]; then
+    echo "[Migration Leader] Applying database migrations..."
+    python manage.py migrate --noinput
 
-# Collect static files
-echo "Collecting static assets..."
-python manage.py collectstatic --noinput --clear || true
+    echo "[Migration Leader] Collecting static assets..."
+    python manage.py collectstatic --noinput --clear || true
 
-# Seed default demo account if requested or not present
-if [ "$SEED_DEMO_DATA" = "true" ] || [ "$SEED_DEMO_DATA" = "1" ]; then
-    echo "Seeding initial demo repository and accounts..."
-    if [ -f "/scripts/seed_demo.py" ]; then
-        python /scripts/seed_demo.py || true
-    elif [ -f "../scripts/seed_demo.py" ]; then
-        python ../scripts/seed_demo.py || true
+    if [ "$SEED_DEMO_DATA" = "true" ] || [ "$SEED_DEMO_DATA" = "1" ]; then
+        echo "[Migration Leader] Seeding initial demo repository and accounts..."
+        if [ -f "/scripts/seed_demo.py" ]; then
+            python /scripts/seed_demo.py || true
+        elif [ -f "../scripts/seed_demo.py" ]; then
+            python ../scripts/seed_demo.py || true
+        fi
     fi
+else
+    echo "[Worker Mode] Skipping migrations to prevent race conditions."
+    echo "[Worker Mode] Waiting for migration leader to complete database setup..."
+    python -c "
+import os, sys, time, django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'codelens.settings')
+django.setup()
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+
+for attempt in range(60):
+    try:
+        executor = MigrationExecutor(connection)
+        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+        if len(plan) == 0:
+            print('[Worker Mode] All database migrations verified.')
+            break
+    except Exception:
+        pass
+    time.sleep(2)
+else:
+    print('Warning: Migration check timed out, continuing worker startup...')
+"
 fi
 
-echo "=== Starting Service: $@ ==="
+echo "=== Launching Service Command: $@ ==="
 exec "$@"

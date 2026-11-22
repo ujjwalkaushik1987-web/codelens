@@ -200,6 +200,11 @@ def run_seed():
         }
     )
 
+    if not created and project.files.exists():
+        print(f"Demo project '{project.name}' already seeded and indexed.")
+        print("--- Seeding Complete ---")
+        return
+
     zip_path = create_sample_repo_zip()
     job = AnalysisJob.objects.create(
         project=project,

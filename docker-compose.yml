@@ -54,6 +54,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - RUN_MIGRATIONS=true
       - SEED_DEMO_DATA=true
     ports:
       - "8000:8000"
@@ -83,11 +84,15 @@ services:
       - AI_PROVIDER=${AI_PROVIDER:-mock}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - RUN_MIGRATIONS=false
+      - SEED_DEMO_DATA=false
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      backend:
+        condition: service_started
     restart: unless-stopped
 
   frontend:
