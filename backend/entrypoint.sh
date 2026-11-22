@@ -46,7 +46,11 @@ python manage.py collectstatic --noinput --clear || true
 # Seed default demo account if requested or not present
 if [ "$SEED_DEMO_DATA" = "true" ] || [ "$SEED_DEMO_DATA" = "1" ]; then
     echo "Seeding initial demo repository and accounts..."
-    python ../scripts/seed_demo.py || true
+    if [ -f "/scripts/seed_demo.py" ]; then
+        python /scripts/seed_demo.py || true
+    elif [ -f "../scripts/seed_demo.py" ]; then
+        python ../scripts/seed_demo.py || true
+    fi
 fi
 
 echo "=== Starting Service: $@ ==="

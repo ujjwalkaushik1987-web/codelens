@@ -6,6 +6,14 @@ from pathlib import Path
 
 # Setup Django environment
 BASE_DIR = Path(__file__).resolve().parent.parent / 'backend'
+if not BASE_DIR.exists():
+    if Path('/app').exists():
+        BASE_DIR = Path('/app')
+    elif Path('.').resolve().name == 'backend':
+        BASE_DIR = Path('.').resolve()
+    else:
+        BASE_DIR = Path(__file__).resolve().parent
+
 sys.path.insert(0, str(BASE_DIR))
 sys.path.insert(0, str(BASE_DIR / 'apps'))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'codelens.settings')
